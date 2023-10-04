@@ -338,12 +338,9 @@ func ensureQuoted(s string) string {
 }
 
 func (g *configGenerator) eraseDomain(name string) string {
-	switch name {
-	case *domain + ".":
-		return ""
-	default:
-		return name
-	}
+	recordNameWithoutDomain := strings.TrimSuffix(name, *domain+".")
+	recordNameWithoutDot := strings.TrimSuffix(recordNameWithoutDomain, ".")
+	return recordNameWithoutDot
 }
 
 func (g *configGenerator) zoneReference(zone string) string {
