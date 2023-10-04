@@ -25,7 +25,6 @@ var (
 
 const (
 	zoneTemplateStr = `module "{{ .ID }}" {
-  
   source = "../modules/zone/"
 
   zone_name            = "{{ .Domain }}"
