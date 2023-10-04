@@ -24,15 +24,19 @@ var (
 )
 
 const (
-	zoneTemplateStr = `resource "aws_route53_zone" "{{ .ID }}" {
-  name = "{{ .Domain }}"
+	zoneTemplateStr = `module "{{ .ID }}" {
+  
+  source = "../modules/zone/"
+
+  zone_name            = "{{ .Domain }}"
+  certmanager_username = "user-certmanager-{{ .Domain }}"
 }
 `
 	recordTemplateStr = `{{- range .Record.Comments }}
 # {{ . }}{{ end }}
 resource "aws_route53_record" "{{ .ResourceID }}" {
   zone_id = {{ zoneReference .ZoneID }}
-  name    = "{{ .Record.Name }}"
+  name    = "{{ eraseDomain .Record.Name }}"
   type    = "{{ .Record.Type }}"
   ttl     = "{{ .Record.TTL }}"
   records = [{{ range $idx, $elem := .Record.Data }}{{ if $idx }}, {{ end }}{{ ensureQuoted $elem }}{{ end }}]
@@ -71,6 +75,7 @@ func newConfigGenerator(syntax syntaxMode) *configGenerator {
 	g.recordTemplate = template.Must(template.New("record").Funcs(template.FuncMap{
 		"ensureQuoted":  ensureQuoted,
 		"zoneReference": g.zoneReference,
+		"eraseDomain":   g.eraseDomain,
 	}).Parse(recordTemplateStr))
 	return g
 }
@@ -113,7 +118,7 @@ func (records recordKeySlice) Swap(i, j int) {
 }
 
 var (
-	excludedTypesRaw = flag.String("exclude", "SOA,NS", "Comma-separated list of record types to ignore")
+	excludedTypesRaw = flag.String("exclude", "SOA", "Comma-separated list of record types to ignore")
 	domain           = flag.String("domain", "", "Name of domain")
 	zoneFile         = flag.String("zone-file", "", "Path to zone file. Defaults to <domain>.zone in working dir")
 	showVersion      = flag.Bool("version", false, "Show version")
@@ -281,12 +286,12 @@ func generateRecord(rr *dns.Token) dnsRecord {
 // sanitizeRecordName creates a normalized record name that Terraform accepts.
 // Terraform only allows letters, numbers, dashes and underscores, while DNS
 // records allow far more.
-// 1. All dots are replaced with -
-// 2. * is replaced by the string "wildcard"
-// 3. IDN records are cleaned using punycode conversion
-// 4. Any remaining non-allowed characters are replaced underscore
-// 5. If the start of the record name is not a valid Terraform identifier,
-//    then prepend an underscore.
+//  1. All dots are replaced with -
+//  2. * is replaced by the string "wildcard"
+//  3. IDN records are cleaned using punycode conversion
+//  4. Any remaining non-allowed characters are replaced underscore
+//  5. If the start of the record name is not a valid Terraform identifier,
+//     then prepend an underscore.
 func sanitizeRecordName(name string) string {
 	withoutDots := strings.Replace(strings.TrimRight(name, "."), ".", "-", -1)
 	withoutAsterisk := strings.Replace(withoutDots, "*", "wildcard", -1)
@@ -332,12 +337,21 @@ func ensureQuoted(s string) string {
 	return fmt.Sprintf("%q", s)
 }
 
+func (g *configGenerator) eraseDomain(name string) string {
+	switch name {
+	case *domain + ".":
+		return ""
+	default:
+		return name
+	}
+}
+
 func (g *configGenerator) zoneReference(zone string) string {
 	switch g.syntax {
 	case Modern:
-		return fmt.Sprintf("aws_route53_zone.%s.zone_id", zone)
+		return fmt.Sprintf("module.%s.zone_id", zone)
 	case Legacy:
-		return fmt.Sprintf(`"${aws_route53_zone.%s.zone_id}"`, zone)
+		return fmt.Sprintf(`"${module.%s.zone_id}"`, zone)
 	default:
 		panic(fmt.Sprintf("Unknown mode %v", g.syntax))
 	}
